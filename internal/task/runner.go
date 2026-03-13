@@ -1,10 +1,16 @@
 // Copyright 2025 DataRobot, Inc. and its affiliates.
-// All rights reserved.
-// DataRobot, Inc. Confidential.
-// This is unpublished proprietary source code of DataRobot, Inc.
-// and its affiliates.
-// The copyright notice above does not evidence any actual or intended
-// publication of such source code.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 
 package task
 
@@ -116,6 +122,7 @@ type RunOpts struct {
 	Silent      bool
 	ExitCode    bool
 	Concurrency int
+	TaskArgs    []string // Additional arguments to pass to the task command
 }
 
 func (o *RunOpts) RunArgs() []string {
@@ -155,6 +162,12 @@ func (r *Runner) Run(tasks []string, opts RunOpts) error {
 
 	args = append(args, opts.RunArgs()...)
 	args = append(args, tasks...)
+
+	// Append additional task arguments after -- separator
+	if len(opts.TaskArgs) > 0 {
+		args = append(args, "--")
+		args = append(args, opts.TaskArgs...)
+	}
 
 	cmd := exec.Command(r.opts.BinaryName, args...)
 

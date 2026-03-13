@@ -1,10 +1,16 @@
 // Copyright 2025 DataRobot, Inc. and its affiliates.
-// All rights reserved.
-// DataRobot, Inc. Confidential.
-// This is unpublished proprietary source code of DataRobot, Inc.
-// and its affiliates.
-// The copyright notice above does not evidence any actual or intended
-// publication of such source code.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 
 package dotenv
 
@@ -16,6 +22,8 @@ import (
 	"os"
 	"path/filepath"
 
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/datarobot/cli/internal/envbuilder"
 	"github.com/datarobot/cli/internal/repo"
 	"github.com/datarobot/cli/tui"
 )
@@ -34,7 +42,7 @@ func generateRandomSecret(length int) (string, error) {
 // ensureInRepo checks if we're in a git repository, and returns the repo root path.
 func ensureInRepo() (string, error) {
 	repoRoot, err := repo.FindRepoRoot()
-	if err != nil || repoRoot == "" {
+	if err != nil {
 		fmt.Println(tui.ErrorStyle.Render("Oops! ") + "This command needs to run inside your AI application folder.")
 		fmt.Println()
 		fmt.Println("📁 What this means:")
@@ -75,4 +83,68 @@ func ensureInRepoWithDotenv() (string, error) {
 	}
 
 	return dotenv, nil
+}
+
+// ValidateAndEditIfNeeded validates the .env file and prompts for editing if validation fails.
+// Returns nil if validation passes or editing completes successfully.
+// Returns an error if validation or editing fails.
+func ValidateAndEditIfNeeded() error {
+	dotenv, err := ensureInRepoWithDotenv()
+	if err != nil {
+		return err
+	}
+
+	repoRoot := filepath.Dir(dotenv)
+
+	dotenvFileLines, contents := readDotenvFile(dotenv)
+
+	// Parse variables from '.env' file
+	parsedVars := envbuilder.ParseVariablesOnly(dotenvFileLines)
+
+	// Validate using envbuilder
+	result := envbuilder.ValidateEnvironment(repoRoot, parsedVars)
+
+	// If validation passes, we're done
+	if !result.HasErrors() {
+		return nil
+	}
+
+	// Validation failed, prompt user to edit
+	fmt.Println()
+	fmt.Println(tui.InfoStyle.Render("⚠️  Configuration Update Needed"))
+	fmt.Println()
+	fmt.Println("The newly added component requires additional environment variables.")
+	fmt.Println("Let's set those up now.")
+	fmt.Println()
+
+	// Check if there are extra variables that need wizard setup
+	variables := envbuilder.ParseVariablesOnly(dotenvFileLines)
+	screen := editorScreen
+
+	if handleExtraEnvVars(variables) {
+		screen = wizardScreen
+	}
+
+	// Launch the edit flow
+	m := Model{
+		initialScreen: screen,
+		DotenvFile:    dotenv,
+		variables:     variables,
+		contents:      contents,
+		SuccessCmd:    tea.Quit,
+	}
+
+	_, err = tui.Run(m, tea.WithAltScreen())
+	if err != nil {
+		fmt.Println()
+		fmt.Println(tui.ErrorStyle.Render("⚠️  Configuration update incomplete"))
+		fmt.Println()
+		fmt.Println("You may need to update your '.env' file manually or run:")
+		fmt.Println("  " + tui.InfoStyle.Render("dr dotenv edit"))
+		fmt.Println()
+
+		return err
+	}
+
+	return nil
 }

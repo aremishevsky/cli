@@ -1,61 +1,96 @@
 // Copyright 2025 DataRobot, Inc. and its affiliates.
-// All rights reserved.
-// DataRobot, Inc. Confidential.
-// This is unpublished proprietary source code of DataRobot, Inc.
-// and its affiliates.
-// The copyright notice above does not evidence any actual or intended
-// publication of such source code.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 
 package config
 
 import (
+	"context"
+	"errors"
 	"net/http"
-	"os"
+	"net/url"
+	"time"
 
-	"github.com/charmbracelet/log"
+	"github.com/datarobot/cli/internal/log"
 	"github.com/spf13/viper"
 )
 
-// VerifyToken verifies if the datarobot host + api key pair correspond to a valid pair.
-func VerifyToken(datarobotHost, token string) (bool, error) {
-	req, err := http.NewRequest(http.MethodGet, datarobotHost+"/api/v2/version/", nil)
+type contextKey string
+
+const userAgentKey contextKey = "userAgent"
+
+// WithUserAgent adds a custom User-Agent to the context
+func WithUserAgent(ctx context.Context, userAgent string) context.Context {
+	return context.WithValue(ctx, userAgentKey, userAgent)
+}
+
+func getUserAgent(ctx context.Context) string {
+	if ua, ok := ctx.Value(userAgentKey).(string); ok && ua != "" {
+		return ua
+	}
+
+	return GetUserAgentHeader()
+}
+
+// VerifyToken verifies if the datarobot endpoint + api key pair correspond to a valid pair.
+func VerifyToken(ctx context.Context, datarobotEndpoint, token string) error {
+	_, err := url.Parse(datarobotEndpoint)
 	if err != nil {
-		return false, err
+		return err
+	}
+
+	if token == "" {
+		return errors.New("empty token")
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, datarobotEndpoint+"/version/", nil)
+	if err != nil {
+		return err
 	}
 
 	bearer := "Bearer " + token
 	req.Header.Add("Authorization", bearer)
-	req.Header.Add("User-Agent", GetUserAgentHeader())
+	req.Header.Add("User-Agent", getUserAgent(ctx))
 
 	log.Debug("Request Info: \n" + RedactedReqInfo(req))
 
-	client := &http.Client{}
+	client := &http.Client{
+		Timeout: 30 * time.Second,
+	}
 
 	resp, err := client.Do(req)
 	if err != nil {
-		return false, err
+		return err
 	}
 
 	defer resp.Body.Close()
 
-	return resp.StatusCode == http.StatusOK, nil
+	if resp.StatusCode != http.StatusOK {
+		return errors.New("invalid token")
+	}
+
+	return nil
 }
 
-func GetAPIKey() string {
-	datarobotHost := GetBaseURL()
-	token := os.Getenv("DATAROBOT_API_TOKEN")
+func GetAPIKey(ctx context.Context) (string, error) {
+	viperEndpoint := viper.GetString(DataRobotURL)
+	viperToken := viper.GetString(DataRobotAPIKey)
 
-	if token != "" {
-		if isValid, _ := VerifyToken(datarobotHost, token); isValid {
-			return token
-		}
+	// Returns valid API key if there is one, otherwise returns an empty string
+	err := VerifyToken(ctx, viperEndpoint, viperToken)
+	if err != nil {
+		return "", err
 	}
 
-	// Returns the API key if there is one, otherwise returns an empty string
-	token = viper.GetString(DataRobotAPIKey)
-	if isValid, _ := VerifyToken(datarobotHost, token); isValid {
-		return token
-	}
-
-	return ""
+	return viperToken, nil
 }

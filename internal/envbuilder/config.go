@@ -1,40 +1,51 @@
 // Copyright 2025 DataRobot, Inc. and its affiliates.
-// All rights reserved.
-// DataRobot, Inc. Confidential.
-// This is unpublished proprietary source code of DataRobot, Inc.
-// and its affiliates.
-// The copyright notice above does not evidence any actual or intended
-// publication of such source code.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 
 package envbuilder
 
 import (
+	"context"
+
 	"github.com/datarobot/cli/internal/config"
 )
 
 type variableConfig = struct {
-	viperKey string
-	getValue func() (string, error)
-	secret   bool
+	value  string
+	secret bool
 }
 
-var knownVariables = map[string]variableConfig{
-	"DATAROBOT_ENDPOINT_SHORT": {
-		getValue: func() (string, error) {
-			return config.GetEndpointURL("")
+func knownVariables(allValues map[string]string) map[string]variableConfig {
+	datarobotEndpoint := allValues["DATAROBOT_ENDPOINT"]
+	token := allValues["DATAROBOT_API_TOKEN"]
+
+	ctx := context.Background()
+
+	err := config.VerifyToken(ctx, datarobotEndpoint, token)
+	if err != nil {
+		datarobotEndpoint, _ = config.GetEndpointURL("/api/v2")
+		token, _ = config.GetAPIKey(ctx)
+	}
+
+	return map[string]variableConfig{
+		"DATAROBOT_ENDPOINT": {
+			value: datarobotEndpoint,
 		},
-	},
-	"DATAROBOT_ENDPOINT": {
-		getValue: func() (string, error) {
-			return config.GetEndpointURL("/api/v2")
+		"DATAROBOT_API_TOKEN": {
+			value:  token,
+			secret: true,
 		},
-	},
-	"DATAROBOT_API_TOKEN": {
-		getValue: func() (string, error) {
-			return config.GetAPIKey(), nil
-		},
-		secret: true,
-	},
+	}
 }
 
 const coreSection = "__DR_CLI_CORE_PROMPT"

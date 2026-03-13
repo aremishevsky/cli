@@ -1,10 +1,16 @@
 // Copyright 2025 DataRobot, Inc. and its affiliates.
-// All rights reserved.
-// DataRobot, Inc. Confidential.
-// This is unpublished proprietary source code of DataRobot, Inc.
-// and its affiliates.
-// The copyright notice above does not evidence any actual or intended
-// publication of such source code.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 
 package dotenv
 
@@ -15,14 +21,13 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/charmbracelet/log"
-	"github.com/datarobot/cli/cmd/auth"
+	"github.com/datarobot/cli/internal/auth"
 	"github.com/datarobot/cli/internal/envbuilder"
+	"github.com/datarobot/cli/internal/log"
 	"github.com/datarobot/cli/internal/repo"
 	"github.com/datarobot/cli/internal/state"
 	"github.com/datarobot/cli/tui"
 	"github.com/spf13/cobra"
-	"github.com/spf13/viper"
 )
 
 func Cmd() *cobra.Command {
@@ -55,15 +60,6 @@ var EditCmd = &cobra.Command{
 	Use:   "edit",
 	Short: "✏️ Edit '.env' file using built-in editor.",
 	RunE: func(cmd *cobra.Command, _ []string) error {
-		if viper.GetBool("debug") {
-			f, err := tea.LogToFile("tea-debug.log", "debug")
-			if err != nil {
-				fmt.Println("fatal: ", err)
-				os.Exit(1)
-			}
-			defer f.Close()
-		}
-
 		cwd, err := os.Getwd()
 		if err != nil {
 			return err
@@ -89,12 +85,7 @@ var EditCmd = &cobra.Command{
 			contents:      contents,
 			SuccessCmd:    tea.Quit,
 		}
-		p := tea.NewProgram(
-			tui.NewInterruptibleModel(m),
-			tea.WithAltScreen(),
-			tea.WithContext(cmd.Context()),
-		)
-		_, err = p.Run()
+		_, err = tui.Run(m, tea.WithAltScreen(), tea.WithContext(cmd.Context()))
 
 		return err
 	},
@@ -112,76 +103,91 @@ This wizard will help you:
   4️⃣  Validate your configuration
 
 💡 Perfect for first-time setup or when adding new integrations.`,
-	PreRunE: func(cmd *cobra.Command, _ []string) error {
-		return auth.EnsureAuthenticatedE(cmd.Context())
-	},
-	Run: func(cmd *cobra.Command, _ []string) {
-		if viper.GetBool("debug") {
-			f, err := tea.LogToFile("tea-debug.log", "debug")
-			if err != nil {
-				fmt.Println("fatal: ", err)
-				os.Exit(1)
-			}
-			defer f.Close()
-		}
-
+	PreRunE: auth.EnsureAuthenticatedE,
+	RunE: func(cmd *cobra.Command, _ []string) error {
 		repositoryRoot, err := ensureInRepo()
 		if err != nil {
-			os.Exit(1)
+			return err
 		}
+
 		dotenvFile := filepath.Join(repositoryRoot, ".env")
 
-		// Check if we should skip when .env exists and is already configured
-		ifNeeded, _ := cmd.Flags().GetBool("if-needed")
-		if ifNeeded {
-			if _, err := os.Stat(dotenvFile); err == nil {
-				// File exists, check if it has content beyond comments/whitespace
-				dotenvFileLines, _ := readDotenvFile(dotenvFile)
-				variables := envbuilder.ParseVariablesOnly(dotenvFileLines)
+		// Check if we should skip when .env exists and all required variables are set
+		flagIfNeededSet, _ := cmd.Flags().GetBool("if-needed")
+		if flagIfNeededSet {
+			shouldSkipSetup, err := shouldSkipSetup(repositoryRoot, dotenvFile)
+			if err != nil {
+				return err
+			}
 
-				hasContent := false
-				for _, v := range variables {
-					if v.Value != "" {
-						hasContent = true
-						break
-					}
-				}
-
-				if hasContent {
-					fmt.Println("Configuration already exists, skipping setup.")
-					return
-				}
+			if shouldSkipSetup {
+				fmt.Println("Configuration already exists, skipping setup.")
+				return nil
 			}
 		}
 
+		// TODO: There's an inconsistency between validation and wizard variable loading:
+		// - shouldSkipSetup uses ParseVariablesOnly (reads only .env file)
+		// - ValidateEnvironment also checks OS environment variables (os.LookupEnv)
+		// - But here we use VariablesFromLines which auto-populates from auth (setValue)
+		//
+		// This means:
+		// 1. If validation passes (vars in .env or OS env), setup is skipped correctly
+		// 2. If validation fails (vars missing), wizard runs but shows auto-populated values from auth
+		//
+		// This is probably acceptable UX (pre-fill makes wizard easier) but creates confusion
+		// about what --if-needed is actually checking. Consider refactoring to be more consistent
+		// or documenting the behavior more clearly in the flag description.
 		dotenvFileLines, _ := readDotenvFile(dotenvFile)
 		variables, contents := envbuilder.VariablesFromLines(dotenvFileLines)
 
+		showAllPrompts, _ := cmd.Flags().GetBool("all")
+
 		m := Model{
-			initialScreen: wizardScreen,
-			DotenvFile:    dotenvFile,
-			variables:     variables,
-			contents:      contents,
-			SuccessCmd:    tea.Quit,
+			initialScreen:  wizardScreen,
+			DotenvFile:     dotenvFile,
+			variables:      variables,
+			contents:       contents,
+			SuccessCmd:     tea.Quit,
+			ShowAllPrompts: showAllPrompts,
 		}
-		p := tea.NewProgram(
-			tui.NewInterruptibleModel(m),
-			tea.WithAltScreen(),
-			tea.WithContext(cmd.Context()),
-		)
-		_, err = p.Run()
+		_, err = tui.Run(m, tea.WithAltScreen(), tea.WithContext(cmd.Context()))
 		if err != nil {
-			fmt.Printf("Error: %v\n", err)
-			os.Exit(1)
+			return err
 		}
 
 		// Update state after successful completion
-		_ = state.UpdateAfterDotenvSetup()
+		_ = state.UpdateAfterDotenvSetup(repositoryRoot)
+
+		return nil
 	},
 }
 
 func init() {
-	SetupCmd.Flags().Bool("if-needed", false, "Only run setup if '.env' file doesn't exist or is empty")
+	SetupCmd.Flags().Bool("if-needed", false, "Only run setup if '.env' file doesn't exist or there are missing env vars.")
+	SetupCmd.Flags().BoolP("all", "a", false, "Show all prompts including those with default values already set.")
+}
+
+// shouldSkipSetup checks if setup should be skipped when --if-needed flag is set.
+// Returns true if .env file exists and all required variables are valid.
+//
+// Note: This uses ParseVariablesOnly to read only what's in the .env file, but
+// ValidateEnvironment also checks OS environment variables via os.LookupEnv.
+// This means validation can pass if required variables are set as environment
+// variables even if they're not in the .env file. This is intentional - if the
+// app can run (because vars are available from any source), setup can be skipped.
+func shouldSkipSetup(repositoryRoot, dotenvFile string) (bool, error) {
+	if _, err := os.Stat(dotenvFile); err != nil {
+		// .env doesn't exist, don't skip
+		return false, nil
+	}
+
+	dotenvFileLines, _ := readDotenvFile(dotenvFile)
+	variables := envbuilder.ParseVariablesOnly(dotenvFileLines)
+
+	result := envbuilder.ValidateEnvironment(repositoryRoot, variables)
+
+	return !result.HasErrors(), nil
 }
 
 var UpdateCmd = &cobra.Command{
@@ -195,9 +201,7 @@ This command will:
   • Preserve your existing custom settings
 
 💡 Use this when your credentials expire or you need to refresh your connection.`,
-	PreRunE: func(cmd *cobra.Command, _ []string) error {
-		return auth.EnsureAuthenticatedE(cmd.Context())
-	},
+	PreRunE: auth.EnsureAuthenticatedE,
 	Run: func(_ *cobra.Command, _ []string) {
 		dotenv, err := ensureInRepoWithDotenv()
 		if err != nil {

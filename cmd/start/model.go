@@ -1,10 +1,16 @@
 // Copyright 2025 DataRobot, Inc. and its affiliates.
-// All rights reserved.
-// DataRobot, Inc. Confidential.
-// This is unpublished proprietary source code of DataRobot, Inc.
-// and its affiliates.
-// The copyright notice above does not evidence any actual or intended
-// publication of such source code.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 
 package start
 
@@ -20,9 +26,11 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/datarobot/cli/internal/log"
 	"github.com/datarobot/cli/internal/repo"
 	"github.com/datarobot/cli/internal/state"
 	"github.com/datarobot/cli/internal/tools"
+	"github.com/datarobot/cli/internal/version"
 	"github.com/datarobot/cli/tui"
 )
 
@@ -39,24 +47,29 @@ type Model struct {
 	steps                []step
 	current              int
 	done                 bool
+	hideMenu             bool
 	quitting             bool
 	err                  error
 	stepCompleteMessage  string // Optional message from the completed step
 	quickstartScriptPath string // Path to the quickstart script to execute
+	selfUpdate           bool   // Whether to ask for self update
 	waitingToExecute     bool   // Whether to wait for user input before proceeding
 	needTemplateSetup    bool   // Whether we need to run template setup after quitting
+	repoRoot             string
 }
 
 type stepCompleteMsg struct {
 	message              string // Optional message to display to the user
 	waiting              bool   // Whether to wait for user input before proceeding
 	done                 bool   // Whether the quickstart process is complete
+	hideMenu             bool   // Do not show menu
 	quickstartScriptPath string // Path to quickstart script found (if any)
+	selfUpdate           bool   // Whether to ask for self update
 	executeScript        bool   // Whether to execute the script immediately
 	needTemplateSetup    bool   // Whether we need to run template setup
 }
 
-type scriptCompleteMsg struct{}
+type startScriptCompleteMsg struct{ err error }
 
 type stepErrorMsg struct {
 	err error // Error encountered during step execution
@@ -74,28 +87,26 @@ var (
 )
 
 func NewStartModel(opts Options) Model {
+	repoRoot, _ := repo.FindRepoRoot()
+
 	return Model{
 		steps: []step{
 			{description: "Starting application quickstart process...", fn: startQuickstart},
+			{description: "Checking DataRobot CLI version...", fn: checkSelfVersion},
 			{description: "Checking template prerequisites...", fn: checkPrerequisites},
 			// TODO Implement validateEnvironment
 			// {description: "Validating environment...", fn: validateEnvironment},
 			{description: "Checking repository setup...", fn: checkRepository},
 			{description: "Finding and executing start command...", fn: findAndExecuteStart},
 		},
-		opts:                 opts,
-		current:              0,
-		done:                 false,
-		quitting:             false,
-		err:                  nil,
-		stepCompleteMessage:  "",
-		quickstartScriptPath: "",
-		waitingToExecute:     false,
-		needTemplateSetup:    false,
+		opts:     opts,
+		repoRoot: repoRoot,
 	}
 }
 
 func (m Model) Init() tea.Cmd {
+	log.Info("start: init", "steps", len(m.steps), "answer_yes", m.opts.AnswerYes)
+
 	return m.executeCurrentStep()
 }
 
@@ -105,6 +116,7 @@ func (m Model) executeCurrentStep() tea.Cmd {
 	}
 
 	currentStep := m.currentStep()
+	log.Info("start: execute step ", "idx", m.current, "desc", currentStep.description)
 
 	return func() tea.Msg {
 		return currentStep.fn(&m)
@@ -115,7 +127,10 @@ func (m Model) executeNextStep() (Model, tea.Cmd) {
 	// Check if there are more steps
 	if m.current >= len(m.steps)-1 {
 		// No more steps, we're done
+		log.Info("start: all steps complete", "current", m.current, "steps", len(m.steps))
+
 		m.done = true
+
 		return m, tea.Quit
 	}
 
@@ -141,16 +156,32 @@ func (m Model) execQuickstartScript() tea.Cmd {
 
 		cmd := exec.Command(taskPath, "start")
 
-		return tea.ExecProcess(cmd, func(_ error) tea.Msg {
-			return scriptCompleteMsg{}
+		return tea.ExecProcess(cmd, func(e error) tea.Msg {
+			return startScriptCompleteMsg{err: e}
 		})
 	}
 
 	// Regular quickstart script execution
 	cmd := exec.Command(m.quickstartScriptPath)
 
-	return tea.ExecProcess(cmd, func(_ error) tea.Msg {
-		return scriptCompleteMsg{}
+	return tea.ExecProcess(cmd, func(e error) tea.Msg {
+		return startScriptCompleteMsg{err: e}
+	})
+}
+
+func (m Model) execSelfUpdate() tea.Cmd {
+	cmd := exec.Command("dr", "self", "update")
+
+	return tea.ExecProcess(cmd, func(err error) tea.Msg {
+		if err != nil {
+			return stepErrorMsg{err: err}
+		}
+
+		return stepCompleteMsg{
+			message:  "Update finished. Please start last command again.",
+			hideMenu: true,
+			done:     true,
+		}
 	})
 }
 
@@ -163,12 +194,25 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleStepComplete(msg)
 
 	case stepErrorMsg:
+		log.Debug("start: step error", "error", msg.err)
+
 		m.err = msg.err
+
 		return m, tea.Quit
 
-	case scriptCompleteMsg:
+	case startScriptCompleteMsg:
+		log.Debug("start: script complete")
+
+		m.err = msg.err
+
+		if m.err != nil {
+			return m, tea.Quit
+		}
+
 		// Script execution completed successfully, update state and quit
-		_ = state.UpdateAfterSuccessfulRun()
+		if m.repoRoot != "" {
+			_ = state.UpdateAfterSuccessfulRun(m.repoRoot)
+		}
 
 		return m, tea.Quit
 	}
@@ -179,6 +223,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// If there's an error, any key press quits
 	if m.err != nil {
+		log.Debug("start: key ignored due to error", "key", msg.String(), "error", m.err)
+
 		return m, tea.Quit
 	}
 
@@ -190,6 +236,10 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.waitingToExecute = false
 			m.stepCompleteMessage = ""
 
+			if m.selfUpdate {
+				return m, m.execSelfUpdate()
+			}
+
 			if m.quickstartScriptPath != "" {
 				return m, m.execQuickstartScript()
 			}
@@ -197,8 +247,16 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m.executeNextStep()
 		case "n", "N", "q", "esc":
 			// Just hang on. Hang on, Dak.
+			if m.selfUpdate {
+				m.selfUpdate = false
+				return m.handleStepComplete(stepCompleteMsg{})
+			}
+
 			// User chose to not execute script, so update state and quit
-			_ = state.UpdateAfterSuccessfulRun()
+			if m.repoRoot != "" {
+				_ = state.UpdateAfterSuccessfulRun(m.repoRoot)
+			}
+
 			m.quitting = true
 
 			return m, tea.Quit
@@ -210,7 +268,10 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// Normal key handling when not waiting
 	switch msg.String() {
 	case "q", "esc":
+		log.Info("start: quit requested", "key", msg.String())
+
 		m.quitting = true
+
 		return m, tea.Quit
 	}
 
@@ -218,9 +279,29 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) handleStepComplete(msg stepCompleteMsg) (tea.Model, tea.Cmd) {
+	log.Debug(
+		"start: step complete",
+		"message", msg.message,
+		"waiting", msg.waiting,
+		"done", msg.done,
+		"hide_menu", msg.hideMenu,
+		"self_update", msg.selfUpdate,
+		"execute_script", msg.executeScript,
+		"quickstart_script_path", msg.quickstartScriptPath,
+		"need_template_setup", msg.needTemplateSetup,
+	)
+
 	// Store any message from the completed step
 	if msg.message != "" {
 		m.stepCompleteMessage = msg.message
+	}
+
+	if msg.hideMenu {
+		m.hideMenu = msg.hideMenu
+	}
+
+	if msg.selfUpdate {
+		m.selfUpdate = msg.selfUpdate
 	}
 
 	// Store quickstart script path if provided
@@ -255,24 +336,26 @@ func (m Model) handleStepComplete(msg stepCompleteMsg) (tea.Model, tea.Cmd) {
 	return m.executeNextStep()
 }
 
-func (m Model) View() string {
+func (m Model) View() string { //nolint: cyclop
 	var sb strings.Builder
 
-	sb.WriteString("\n")
-	sb.WriteString(tui.WelcomeStyle.Render("🚀 DataRobot AI Application Quickstart"))
-	sb.WriteString("\n\n")
+	if !m.hideMenu {
+		sb.WriteString("\n")
+		sb.WriteString(tui.WelcomeStyle.Render("🚀 DataRobot AI Application Quickstart"))
+		sb.WriteString("\n\n")
 
-	for i, step := range m.steps {
-		if i < m.current {
-			sb.WriteString(fmt.Sprintf("  %s %s\n", checkMark, tui.DimStyle.Render(step.description)))
-		} else if i == m.current {
-			sb.WriteString(fmt.Sprintf("  %s %s\n", arrow, step.description))
-		} else {
-			sb.WriteString(fmt.Sprintf("    %s\n", tui.DimStyle.Render(step.description)))
+		for i, step := range m.steps {
+			if i < m.current {
+				sb.WriteString(fmt.Sprintf("  %s %s\n", checkMark, tui.DimStyle.Render(step.description)))
+			} else if i == m.current {
+				sb.WriteString(fmt.Sprintf("  %s %s\n", arrow, step.description))
+			} else {
+				sb.WriteString(fmt.Sprintf("    %s\n", tui.DimStyle.Render(step.description)))
+			}
 		}
-	}
 
-	sb.WriteString("\n")
+		sb.WriteString("\n")
+	}
 
 	// Display error or status message
 	if m.err != nil {
@@ -293,7 +376,7 @@ func (m Model) View() string {
 
 		if m.waitingToExecute {
 			sb.WriteString(tui.DimStyle.Render("Press 'y' or ENTER to confirm, 'n' to cancel"))
-		} else {
+		} else if !m.selfUpdate {
 			sb.WriteString(tui.Footer())
 		}
 	}
@@ -309,6 +392,28 @@ func startQuickstart(_ *Model) tea.Msg {
 	// - Set up initial state
 	// - Display welcome message
 	// - Prepare for subsequent steps
+	return stepCompleteMsg{}
+}
+
+func checkSelfVersion(_ *Model) tea.Msg {
+	// Do we have the required self version?
+	tool, err := tools.GetSelfRequirement()
+	if err != nil {
+		return stepErrorMsg{err: err}
+	}
+
+	if tool.MinimumVersion != "" && !tools.SufficientSelfVersion(tool.MinimumVersion) {
+		log.Info("start: insufficient CLI version", "minimal", tool.MinimumVersion, "installed", version.Version)
+		missing := fmt.Sprintf("%s (minimal: v%s, installed: %s)\nDo you want to update it now?",
+			tool.Name, tool.MinimumVersion, version.Version)
+
+		return stepCompleteMsg{
+			waiting:    true,
+			selfUpdate: true,
+			message:    missing,
+		}
+	}
+
 	return stepCompleteMsg{}
 }
 
@@ -347,6 +452,8 @@ func checkRepository(m *Model) tea.Msg {
 	// Check if we're in a DataRobot repository
 	// If not, we need to run templates setup
 	if !repo.IsInRepo() {
+		pwd, _ := os.Getwd()
+		log.Info("start: pwd " + pwd + " is not a DataRobot repository")
 		// Not in a repo, signal that we need to run templates setup and quit
 		return stepCompleteMsg{
 			message:           "Not in a DataRobot repository. Launching template setup...\n",
@@ -404,9 +511,9 @@ func findAndExecuteStart(m *Model) tea.Msg {
 		}
 	}
 
-	// No start command found
+	// No start command found - warn user that template may not support DR CLI
 	return stepCompleteMsg{
-		message: "No start command or quickstart script found.\n",
+		message: "No start command or quickstart script found.\nThis template may not yet fully support the DataRobot CLI.\nPlease check the template README for more information on how to get started.\n",
 		done:    true,
 	}
 }

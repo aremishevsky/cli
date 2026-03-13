@@ -1,10 +1,16 @@
 // Copyright 2025 DataRobot, Inc. and its affiliates.
-// All rights reserved.
-// DataRobot, Inc. Confidential.
-// This is unpublished proprietary source code of DataRobot, Inc.
-// and its affiliates.
-// The copyright notice above does not evidence any actual or intended
-// publication of such source code.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 
 package compose
 
@@ -15,15 +21,20 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/charmbracelet/log"
+	"github.com/datarobot/cli/internal/log"
 	"github.com/datarobot/cli/internal/task"
 	"github.com/spf13/cobra"
+)
+
+const (
+	taskfileLong  = "Taskfile.yaml"
+	taskfileShort = "Taskfile.yml"
 )
 
 var templatePath string
 
 func Run(_ *cobra.Command, _ []string) {
-	taskfileName := detectExistingTaskfile()
+	taskfileName, ignoreTaskfile := detectExistingTaskfile()
 	discovery := createDiscovery(taskfileName)
 
 	taskFilePath, err := discovery.Discover(".", 2)
@@ -41,7 +52,7 @@ func Run(_ *cobra.Command, _ []string) {
 	}
 
 	contents := string(contentBytes)
-	taskfileIgnore := "/" + taskfileName
+	taskfileIgnore := "/" + ignoreTaskfile
 
 	// Check if Taskfile.yaml or Taskfile.yml is already in .gitignore
 	if isIgnored(contents, taskfileIgnore) {
@@ -105,19 +116,19 @@ func validateTemplatePath(path string) (string, error) {
 
 // detectExistingTaskfile checks for existing Taskfile.yaml or Taskfile.yml
 // and returns the name of the existing one, or defaults to Taskfile.yaml
-func detectExistingTaskfile() string {
+func detectExistingTaskfile() (inUse, notInUse string) {
 	// Check for Taskfile.yaml first (more common)
-	if _, err := os.Stat("Taskfile.yaml"); err == nil {
-		return "Taskfile.yaml"
+	if _, err := os.Stat(taskfileLong); err == nil {
+		return taskfileLong, taskfileShort
 	}
 
 	// Check for Taskfile.yml
-	if _, err := os.Stat("Taskfile.yml"); err == nil {
-		return "Taskfile.yml"
+	if _, err := os.Stat(taskfileShort); err == nil {
+		return taskfileShort, taskfileLong
 	}
 
 	// Default to Taskfile.yaml if neither exists
-	return "Taskfile.yaml"
+	return taskfileLong, taskfileShort
 }
 
 // isIgnored checks if a pattern is already in .gitignore content

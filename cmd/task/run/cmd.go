@@ -1,10 +1,16 @@
 // Copyright 2025 DataRobot, Inc. and its affiliates.
-// All rights reserved.
-// DataRobot, Inc. Confidential.
-// This is unpublished proprietary source code of DataRobot, Inc.
-// and its affiliates.
-// The copyright notice above does not evidence any actual or intended
-// publication of such source code.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 
 package run
 
@@ -15,7 +21,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/charmbracelet/log"
+	"github.com/datarobot/cli/internal/log"
 	"github.com/datarobot/cli/internal/task"
 	"github.com/spf13/cobra"
 )
@@ -25,11 +31,46 @@ type taskRunOptions struct {
 	taskOpts task.RunOpts
 }
 
+// splitTaskArgs separates task names from additional arguments.
+// Supports: dr run task1 task2 -- -flag1 -flag2
+// Also auto-detects flags after task names if no explicit -- separator is present.
+func splitTaskArgs(args []string) (taskNames []string, taskArgs []string) {
+	taskNames = []string{}
+	taskArgs = []string{}
+
+	// Cobra may filter out "--", so we also detect flags after task names
+	foundSeparator := false
+	seenTaskName := false
+
+	for _, arg := range args {
+		if arg == "--" {
+			foundSeparator = true
+			continue
+		}
+
+		// If we've seen a task name and hit a flag-like argument, treat rest as task args
+		if seenTaskName && strings.HasPrefix(arg, "-") && !foundSeparator {
+			foundSeparator = true
+		}
+
+		if foundSeparator {
+			taskArgs = append(taskArgs, arg)
+		} else {
+			taskNames = append(taskNames, arg)
+			if !strings.HasPrefix(arg, "-") {
+				seenTaskName = true
+			}
+		}
+	}
+
+	return taskNames, taskArgs
+}
+
 func Cmd() *cobra.Command {
 	var opts taskRunOptions
 
 	cmd := &cobra.Command{
-		Use:     "run [task1, task2, ...] [flags]",
+		Use:     "run [task1, task2, ...] [flags] [-- task-args...]",
 		Aliases: []string{"r"},
 		Short:   "🚀 Run application tasks",
 		Long: `Run tasks defined in your application template.
@@ -45,9 +86,11 @@ Examples:
   dr run dev                    # Start development server
   dr run build deploy           # Build and deploy
   dr run test --parallel        # Run tests in parallel
+  dr run deploy -- -y           # Deploy with auto-confirmation (pass -y to task)
   dr run --list                 # Show all available tasks
 
-💡 Tasks are defined in your project's 'Taskfile' and vary by template.`,
+💡 Tasks are defined in your project's 'Taskfile' and vary by template.
+💡 Use -- to pass additional arguments to the task command itself.`,
 		Run: func(_ *cobra.Command, args []string) {
 			binaryName := "task"
 			discovery := task.NewTaskDiscovery("Taskfile.gen.yaml")
@@ -83,11 +126,13 @@ Examples:
 				return
 			}
 
-			taskNames := args
+			taskNames, taskArgs := splitTaskArgs(args)
 
 			if !opts.taskOpts.Silent {
 				log.Printf("Running task(s): %s\n", strings.Join(taskNames, ", "))
 			}
+
+			opts.taskOpts.TaskArgs = taskArgs
 
 			err = runner.Run(taskNames, opts.taskOpts)
 			if err != nil { //nolint: nestif

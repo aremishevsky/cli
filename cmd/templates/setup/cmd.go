@@ -1,22 +1,26 @@
 // Copyright 2025 DataRobot, Inc. and its affiliates.
-// All rights reserved.
-// DataRobot, Inc. Confidential.
-// This is unpublished proprietary source code of DataRobot, Inc.
-// and its affiliates.
-// The copyright notice above does not evidence any actual or intended
-// publication of such source code.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 
 package setup
 
 import (
 	"context"
-	"fmt"
-	"os"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/datarobot/cli/internal/auth"
 	"github.com/datarobot/cli/tui"
 	"github.com/spf13/cobra"
-	"github.com/spf13/viper"
 )
 
 var Cmd = &cobra.Command{
@@ -34,6 +38,7 @@ var Cmd = &cobra.Command{
 🎉 You'll have a working AI app at the end
 
 💡 Perfect for first-time users or someone starting a new project.`,
+	PreRunE: auth.EnsureAuthenticatedE,
 	RunE: func(cmd *cobra.Command, _ []string) error {
 		return RunTea(cmd.Context(), false)
 	},
@@ -41,23 +46,9 @@ var Cmd = &cobra.Command{
 
 // RunTea starts the template setup TUI, optionally from the start command
 func RunTea(ctx context.Context, fromStartCommand bool) error {
-	if viper.GetBool("debug") {
-		f, err := tea.LogToFile("tea-debug.log", "debug")
-		if err != nil {
-			fmt.Println("fatal: ", err)
-			os.Exit(1)
-		}
-		defer f.Close()
-	}
-
 	m := NewModel(fromStartCommand)
-	p := tea.NewProgram(
-		tui.NewInterruptibleModel(m),
-		tea.WithAltScreen(),
-		tea.WithContext(ctx),
-	)
 
-	_, err := p.Run()
+	_, err := tui.Run(m, tea.WithAltScreen(), tea.WithContext(ctx))
 	// TODO: Re-enable after further testing of component configure
 	// if err != nil {
 	// 	return err
@@ -73,4 +64,18 @@ func RunTea(ctx context.Context, fromStartCommand bool) error {
 	// }
 
 	return err
+}
+
+func InnerModel(finalModel tea.Model) (Model, bool) {
+	startModel, ok := finalModel.(tui.InterruptibleModel)
+	if !ok {
+		return Model{}, false
+	}
+
+	innerModel, ok := startModel.Model.(Model)
+	if !ok {
+		return Model{}, false
+	}
+
+	return innerModel, true
 }

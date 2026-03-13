@@ -1,10 +1,16 @@
 // Copyright 2025 DataRobot, Inc. and its affiliates.
-// All rights reserved.
-// DataRobot, Inc. Confidential.
-// This is unpublished proprietary source code of DataRobot, Inc.
-// and its affiliates.
-// The copyright notice above does not evidence any actual or intended
-// publication of such source code.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 
 package config
 
@@ -19,17 +25,33 @@ import (
 	"github.com/spf13/viper"
 )
 
-var (
-	configFileDir  = filepath.Join(".config", "datarobot") // Can we also support XDG_CONFIG_HOME?
-	configFileName = "drconfig.yaml"
-)
+var configFileName = "drconfig.yaml"
+
+// GetConfigDir returns the config directory, respecting XDG_CONFIG_HOME if set.
+// Falls back to ~/.config/datarobot if XDG_CONFIG_HOME is not set.
+func GetConfigDir() (string, error) {
+	configHome := os.Getenv("XDG_CONFIG_HOME")
+	if configHome == "" {
+		homeDir, err := os.UserHomeDir()
+		if err != nil {
+			return "", fmt.Errorf("failed to get home directory: %w", err)
+		}
+
+		configHome = filepath.Join(homeDir, ".config")
+	}
+
+	return filepath.Join(configHome, "datarobot"), nil
+}
 
 func CreateConfigFileDirIfNotExists() error {
-	// Set the default config file directory here to aid in testing
-	defaultConfigFileDir := filepath.Join(os.Getenv("HOME"), configFileDir)
+	defaultConfigFileDir, err := GetConfigDir()
+	if err != nil {
+		return err
+	}
+
 	defaultConfigFilePath := filepath.Join(defaultConfigFileDir, configFileName)
 
-	_, err := os.Stat(defaultConfigFilePath)
+	_, err = os.Stat(defaultConfigFilePath)
 	if err == nil {
 		// File exists, do nothing
 		return nil
@@ -55,8 +77,10 @@ func CreateConfigFileDirIfNotExists() error {
 }
 
 func ReadConfigFile(filePath string) error {
-	// Set the default config file directory here to aid in testing
-	defaultConfigFileDir := filepath.Join(os.Getenv("HOME"), configFileDir)
+	defaultConfigFileDir, err := GetConfigDir()
+	if err != nil {
+		return err
+	}
 
 	viper.SetConfigType("yaml")
 

@@ -69,6 +69,10 @@ release:
     - glob: ./**/*.rb
   footer: |
     **Full Changelog**: https://github.com/datarobot-oss/cli/compare/{{ .PreviousTag }}...{{ .Tag }}
+  prerelease: auto
+
+git:
+  tag_sort: -version:creatordate
 
 homebrew_casks:
   - name: dr-cli
@@ -87,7 +91,7 @@ homebrew_casks:
     commit_msg_template: "Brew formula update for {{ .ProjectName }} version {{ .Tag }}"
     directory: Casks
     description: "DataRobot command-line interface."
-    skip_upload: "{{ if contains .Tag \"rc\" }}true{{ else }}false{{ end }}"
+    skip_upload: "{{ if .Prerelease }}true{{ else }}false{{ end }}"
     repository:
       owner: datarobot-oss
       name: homebrew-taps

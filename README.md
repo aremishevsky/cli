@@ -85,7 +85,13 @@ irm https://cli.datarobot.com/winstall | iex
 The following are alternative installation methods for the DataRobot CLI.
 You can choose to download a binary directly, install a specific version, or build and install from source.
 
-### Download binary (recommended)
+### Install via Homebrew / Linuxbrew (recommended)
+
+```bash
+brew install datarobot-oss/taps/dr-cli
+```
+
+### Download binary
 
 Download the latest release for your operating system:
 
@@ -128,13 +134,13 @@ If you'd like to install a specific version, you can do so by passing the versio
 #### macOS/Linux
 
 ```bash
-curl  https://cli.datarobot.com/install | sh -s -- v0.1.0
+curl  https://cli.datarobot.com/install | sh -s -- v0.2.37
 ```
 
 #### Windows (PowerShell)
 
 ```powershell
-$env:VERSION = "v0.1.0"; irm https://cli.datarobot.com/winstall | iex
+$env:VERSION = "v0.2.37"; irm https://cli.datarobot.com/winstall | iex
 ```
 
 ### Build and install from source
@@ -143,7 +149,7 @@ If you would like to build and install from source, you can do so by following t
 
 #### Prerequisites
 
-- Go 1.25.5 or later (for building from source)
+- Go 1.25.7 or later (for building from source)
 - Git
 - [Task](https://taskfile.dev/) (for development and task running)
 
@@ -165,7 +171,7 @@ task build
 sudo mv ./dist/dr /usr/local/bin/dr
 ```
 
-#### Windows (install a specific version)
+#### Windows
 
 ```powershell
 # Clone the repository
@@ -195,7 +201,7 @@ dr --version
 You should see output similar to:
 
 ```text
-DataRobot CLI (version v0.2.9)
+DataRobot CLI version: v0.2.37
 ```
 
 ### Updating the CLI
@@ -305,9 +311,7 @@ When you clone and configure a template, it becomes your **application**&mdash;a
 dr templates setup
 ```
 
-After a few moments, the setup wizard displays the application templates available:
-
-<img src="./images/templates-list.png" alt="Templates list" width="500px"/>
+After a few moments, the setup wizard displays the application templates available.
 
 > [!NOTE]
 > You can navigate through the list of templates using the arrow keys, or filter by pressing the `/` key and entering a search term. The setup wizard will only display templates that are available to you.
@@ -324,13 +328,13 @@ At the subsequent prompt, specify the desired directory name for the template an
 # 1. List available templates.
 dr templates list
 
-# 2. Clone a specific template.
-dr templates clone TEMPLATE_NAME
+# 2. Set up a template (this clones and configures it).
+dr templates setup
 
 # 3. Navigate to the template directory.
 cd TEMPLATE_NAME
 
-# 4. Configure environment variables.
+# 4. Configure environment variables (if not done during setup).
 dr dotenv setup
 ```
 
@@ -367,9 +371,10 @@ dr start
 
 This command will:
 
-- Check prerequisites and validate your environment.
-- Execute a template-specific quickstart script if available.
-- Fall back to the setup wizard if no script exists.
+- Verify your CLI version meets the template's minimum requirements (and prompt to update if needed).
+- Check template prerequisites (required tools such as Task, Git).
+- Check if you're in a DataRobot repository (if not, launches the template setup wizard, then runs `dr start` again in the cloned directory).
+- Find and run a start command: `task start` from the Taskfile if available (runs immediately), or a quickstart script from `.datarobot/cli/bin/` if available (prompts to run unless you use `--yes`). If you're in a repository but neither exists, it shows a message and exits.
 
 > [!TIP]
 > You can use the `--yes` flag to skip all prompts and execute immediately. This is useful in scripts or CI/CD pipelines.
@@ -396,7 +401,7 @@ dr run test
 ## Next steps
 
 From here, refer to the repository of the template you selected to start customizing it.
-Refer to the [Docs](/docs/) section of this repository for more details on using the DataRobot CLI.
+Refer to the [Docs](docs/) section of this repository for more details on using the DataRobot CLI.
 See the links below for specific details:
 
 - **[User guide](docs/user-guide/README.md)**&mdash;complete usage guide covering installation, authentication, working with templates, configuration management, and shell completions.
@@ -487,6 +492,8 @@ dr --verbose templates list
 dr --debug templates list
 ```
 
+When you enable debug mode, the CLI creates a `.dr-tui-debug.log` file in your home directory for terminal UI debug information.
+
 ## Contributing
 
 We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for details on:
@@ -500,8 +507,8 @@ We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for deta
 ## Support
 
 - 📖 [Documentation](docs/)
-- 🐛 [Issue Tracker](https://github.com/datarobot/cli/issues)
-- 💬 [Discussions](https://github.com/datarobot/cli/discussions)
+- 🐛 [Issue Tracker](https://github.com/datarobot-oss/cli/issues)
+- 💬 [Discussions](https://github.com/datarobot-oss/cli/discussions)
 - 📧 Email: <oss-community-management@datarobot.com>
 
 ## Acknowledgments

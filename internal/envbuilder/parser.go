@@ -1,10 +1,16 @@
 // Copyright 2025 DataRobot, Inc. and its affiliates.
-// All rights reserved.
-// DataRobot, Inc. Confidential.
-// This is unpublished proprietary source code of DataRobot, Inc.
-// and its affiliates.
-// The copyright notice above does not evidence any actual or intended
-// publication of such source code.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 
 package envbuilder
 
@@ -13,10 +19,9 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/charmbracelet/log"
+	"github.com/datarobot/cli/internal/log"
 	"github.com/datarobot/cli/internal/misc/regexp2"
 	"github.com/joho/godotenv"
-	"github.com/spf13/viper"
 )
 
 // Variable represents a parsed environment variable from a .env file or template.
@@ -86,13 +91,14 @@ func NewFromLine(line string, unquotedValues map[string]string) Variable {
 	return Variable{
 		Name:      result["name"],
 		Value:     result["value"],
-		Secret:    knownVariables[result["name"]].secret,
 		Commented: result["commented"] != "",
 	}
 }
 
 func VariablesFromLines(lines []string) ([]Variable, string) {
 	unquotedValues, _ := godotenv.Unmarshal(strings.Join(lines, "\n"))
+	variablesConfig := knownVariables(unquotedValues)
+
 	variables := make([]Variable, 0)
 
 	var contents strings.Builder
@@ -102,6 +108,10 @@ func VariablesFromLines(lines []string) ([]Variable, string) {
 
 		if v.Name != "" && v.Commented {
 			variables = append(variables, v)
+
+			contents.WriteString(line)
+
+			continue
 		}
 
 		if v.Name == "" || v.Commented {
@@ -109,7 +119,10 @@ func VariablesFromLines(lines []string) ([]Variable, string) {
 			continue
 		}
 
-		v.setValue()
+		if varConfig, ok := variablesConfig[v.Name]; ok {
+			v.Value = varConfig.value
+			v.Secret = varConfig.secret
+		}
 
 		if v.Value == "" {
 			contents.WriteString(line)
@@ -122,26 +135,4 @@ func VariablesFromLines(lines []string) ([]Variable, string) {
 	}
 
 	return variables, contents.String()
-}
-
-func (v *Variable) setValue() {
-	conf, found := knownVariables[v.Name]
-
-	if !found {
-		return
-	}
-
-	switch {
-	case conf.viperKey != "":
-		v.Value = viper.GetString(conf.viperKey)
-	case conf.getValue != nil:
-		var err error
-
-		v.Value, err = conf.getValue()
-		if err != nil && v.Value != "" {
-			// Only log error if we actually got a non-empty value with an error
-			// Ignore "empty url" and similar errors when exiting setup
-			log.Error(err)
-		}
-	}
 }

@@ -1,10 +1,16 @@
 // Copyright 2025 DataRobot, Inc. and its affiliates.
-// All rights reserved.
-// DataRobot, Inc. Confidential.
-// This is unpublished proprietary source code of DataRobot, Inc.
-// and its affiliates.
-// The copyright notice above does not evidence any actual or intended
-// publication of such source code.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 
 package envbuilder
 
@@ -47,12 +53,20 @@ root:
       - name: "Registered Model with an LLM Blueprint"
         value: "registered_model.py"
         requires: registered_model
+  - env: DUPLICATE
+    type: string
+    optional: true
+    help: "Duplicate root."
 
 deployed_llm:
   - env: TEXTGEN_DEPLOYMENT_ID
     type: string
     optional: false
     help: "The deployment ID of the DataRobot Deployed LLM to use."
+  - env: DUPLICATE
+    type: string
+    optional: true
+    help: "Duplicate deployed_llm."
 
 registered_model:
   - env: TEXTGEN_REGISTERED_MODEL_ID
@@ -64,6 +78,10 @@ registered_model:
     default: "30"
     optional: true
     help: "The timeout in minutes for DataRobot operations. Default is 30 minutes."
+  - env: DUPLICATE
+    type: string
+    optional: true
+    help: "Duplicate registered_model."
 `
 
 func TestDiscoverTestSuite(t *testing.T) {

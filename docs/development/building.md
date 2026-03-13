@@ -2,10 +2,12 @@
 
 This guide outlines how to build, test, and develop with the DataRobot CLI.
 
+> **GitHub CLI Recommendation**: DataRobot recommends using the [GitHub CLI](https://cli.github.com/) (`gh`) for fork management. All examples use `gh` commands. See the [GitHub CLI installation guide](https://github.com/cli/cli#installation) if needed. If you prefer manual git workflow, you can replace `gh` commands with equivalent `git` operations.
+
 ## Table of contents
 
 - [Build from source](#build-from-source)
-- [Project architecture](#project-architecture)
+- [Directory structure](#directory-structure)
 - [Coding standards](#coding-standards)
 - [Development workflow](#development-workflow)
 - [Testing](#testing)
@@ -16,15 +18,15 @@ This guide outlines how to build, test, and develop with the DataRobot CLI.
 
 ### Prerequisites
 
-- [Go 1.25.5+](https://golang.org/dl/)
+- [Go 1.25.7+](https://golang.org/dl/)
 - Git version control
 - [Task](https://taskfile.dev/installation/) (The task runner)
 
 ### Quick build
 
 ```bash
-# Clone repository
-git clone https://github.com/datarobot-oss/cli.git
+# Fork and clone the repository
+gh repo fork datarobot-oss/cli --clone
 cd cli
 
 # Install development tools
@@ -247,7 +249,7 @@ PostRunE: func(cmd *cobra.Command, args []string) error {
 },
 ```
 
-Each command can be assigned to a group via `GroupID` for better organization in `dr help` views. Commands without a `GroupID` are listed under [Additional commands](#additional-commands).
+Each command can be assigned to a group via `GroupID` for better organization in `dr help` views. Commands without a `GroupID` are listed under Additional commands.
 
 #### Model-view-update
 
@@ -328,14 +330,13 @@ func good() {
 
 Consider the following when building terminal user interfaces.
 
-1. **Always wrap TUI models with InterruptibleModel**. This ensures global `Ctrl-C` handling.
+1. **Always use the `tui.Run` wrapper to execute TUI models**. This ensures global `Ctrl-C` handling and sets up logging to `.dr-tui-debug.log`.
 
    ```go
    import "github.com/datarobot/cli/tui"
 
-   // Wrap your model
-   interruptible := tui.NewInterruptibleModel(yourModel)
-   program := tea.NewProgram(interruptible)
+   // Run your model
+   _, err := tui.Run(yourModel)
    ```
 
 2. **Reuse existing TUI components**. Check `tui/` package first before creating new components. Also explore the [Bubbles library](https://github.com/charmbracelet/bubbles) for pre-built components.
@@ -395,15 +396,21 @@ go test
 ### 1. Set up the development environment
 
 ```bash
-# Clone and setup
-git clone https://github.com/datarobot-oss/cli.git
+# Fork and clone the repository
+gh repo fork datarobot-oss/cli --clone
 cd cli
+
+# Setup development environment
 task dev-init
 ```
 
 ### 2. Create a feature branch
 
 ```bash
+# Sync with upstream first
+gh repo sync
+
+# Create feature branch
 git checkout -b feature/my-feature
 ```
 
@@ -446,6 +453,8 @@ git push origin feature/my-feature
 
 ### Unit tests
 
+Unit tests are `*_test.go` files co-located with the code they test.
+
 ```go
 // cmd/auth/login_test.go
 package auth
@@ -468,6 +477,8 @@ func TestLogin(t *testing.T) {
 ```
 
 ### Integration tests
+
+Integration tests are also written as Go tests (`*_test.go`). They typically exercise interactions between multiple packages and/or use temporary on-disk state.
 
 ```go
 // internal/config/config_test.go
@@ -536,14 +547,47 @@ go test -run TestLogin ./cmd/auth
 
 **Note**: `task test` automatically runs tests with race detection and coverage enabled.
 
-### Run smoke tests using GitHub Actions
+### Go version requirements for race detection
 
-DataRobot has smoke tests that are not currently run on Pull Requests. However you can use PR comments to trigger them.
+The `-race` flag requires the race runtime library to match your Go compiler version exactly. If you see an error like:
 
-These are the appropriate comments to trigger respective tests:
+```text
+compile: version "go1.X.Y" does not match go tool version "go1.X.Z"
+```
+
+This means your installed Go version doesn't match the version specified in `go.mod`. Go's `GOTOOLCHAIN=auto` setting (the default) automatically downloads the required toolchain, but the race runtime comes from your local `GOROOT` installation.
+
+**To resolve:**
+
+- **Upgrade Go** to match `go.mod`: `brew upgrade go` (macOS)
+- **Or downgrade `go.mod`**: `go mod edit -go=1.X.Z` (where `1.X.Z` is your installed version)
+- **Or force the downloaded toolchain**: `export GOTOOLCHAIN=go1.X.Y` (where `1.X.Y` is the version in `go.mod`)
+
+### Run smoke tests
+
+Smoke tests verify the CLI works end-to-end with a real DataRobot environment.
+
+**Run locally:**
+
+```bash
+# Set your DataRobot API token
+export DR_API_TOKEN=your-token
+
+# Run smoke tests
+task smoke-test
+
+# Windows
+task smoke-test-windows
+```
+
+**Run via GitHub Actions:**
+
+Smoke tests are not automatically run on Pull Requests. You can trigger them using PR comments:
 
 - `/trigger-smoke-test` or `/trigger-test-smoke`: Run smoke tests on a PR.
 - `/trigger-install-test` or `/trigger-test-install`: Run installation tests on a PR.
+
+Daily automated smoke tests also run in CI.
 
 ## Debugging
 
@@ -565,6 +609,8 @@ dlv debug main.go -- templates list
 
 ### Debug logging
 
+Enable debug logging to see detailed execution information:
+
 ```bash
 # Enable debug mode (use task run)
 task run -- --debug templates list
@@ -574,10 +620,20 @@ task build
 ./dist/dr --debug templates list
 ```
 
+When you enable debug mode, the CLI:
+
+- Prints detailed log messages to stderr and `.dr-tui-debug.log` file in the home directory.
+
+When adding new debug output:
+
+- Never log user-provided input (including prompt responses), and avoid logging secrets (tokens, passwords, etc.).
+
 ### Add debug statements
 
 ```go
-import "github.com/charmbracelet/log"
+import (
+    "github.com/datarobot/cli/internal/log"
+)
 
 // Debug logging
 log.Debug("Variable value", "key", value)
@@ -588,14 +644,14 @@ log.Error("Operation failed", "error", err)
 
 ## Release process
 
-See [Release documentation](../../README.md#release) for a detailed overview of the release process.
+See [Releasing documentation](releasing.md) for a detailed overview of the release process.
 
 ### Quick release
 
 ```bash
 # Tag version
 git tag v1.0.0
-git push --tags
+git push upstream --tags
 
 # GitHub Actions will:
 # 1. Build for all platforms
@@ -606,6 +662,6 @@ git push --tags
 
 ## See also
 
-- [Contributing Guide](../../CONTRIBUTING.md)
+- [Contributing guide](https://github.com/datarobot-oss/cli/blob/main/CONTRIBUTING.md)
 - [Project structure](structure.md)&mdash;code organization and design
 - [Release process](releasing.md)&mdash;how releases are created and published
