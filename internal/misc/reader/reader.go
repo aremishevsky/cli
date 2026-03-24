@@ -20,9 +20,11 @@ import (
 	"os"
 	"os/signal"
 	"runtime"
+	"strings"
 	"syscall"
 
 	"github.com/muesli/cancelreader"
+	"golang.org/x/term"
 )
 
 func ReadString() (string, error) {
@@ -54,4 +56,26 @@ func ReadString() (string, error) {
 	}
 
 	return str, err
+}
+
+// AskYesNo prints nothing itself — the caller is expected to have already
+// prompted the user. It reads one line from stdin and returns true unless
+// the user explicitly types "n" or "no" (case-insensitive).
+// An empty input (just pressing Enter) is treated as yes.
+// Any read error (including Ctrl+C / SIGINT cancellation) is treated as no.
+func AskYesNo() bool {
+	line, err := ReadString()
+	if err != nil {
+		return false
+	}
+
+	answer := strings.TrimSpace(strings.ToLower(line))
+
+	return answer != "n" && answer != "no"
+}
+
+// IsStdinTerminal reports whether stdin is connected to an interactive terminal.
+// Returns false when stdin is a pipe, a file redirect, or otherwise non-interactive.
+func IsStdinTerminal() bool {
+	return term.IsTerminal(int(os.Stdin.Fd()))
 }
