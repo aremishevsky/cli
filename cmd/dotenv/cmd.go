@@ -34,7 +34,7 @@ func Cmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:     "dotenv",
 		GroupID: "core",
-		Short:   "🔧 Environment configuration commands.",
+		Short:   "🔧 Environment configuration commands",
 		Long: `Environment configuration commands for managing your application settings.
 
 Manage your '.env' file and application configuration:
@@ -58,7 +58,8 @@ Manage your '.env' file and application configuration:
 
 var EditCmd = &cobra.Command{
 	Use:   "edit",
-	Short: "✏️ Edit '.env' file using built-in editor.",
+	Short: "✏️ Edit '.env' file using built-in editor",
+
 	RunE: func(cmd *cobra.Command, _ []string) error {
 		cwd, err := os.Getwd()
 		if err != nil {
@@ -93,7 +94,7 @@ var EditCmd = &cobra.Command{
 
 var SetupCmd = &cobra.Command{
 	Use:   "setup",
-	Short: "🧙 Environment configuration wizard.",
+	Short: "🧙 Environment configuration wizard",
 	Long: `Launch the interactive environment configuration wizard.
 
 This wizard will help you:
@@ -104,6 +105,7 @@ This wizard will help you:
 
 💡 Perfect for first-time setup or when adding new integrations.`,
 	PreRunE: auth.EnsureAuthenticatedE,
+
 	RunE: func(cmd *cobra.Command, _ []string) error {
 		repositoryRoot, err := ensureInRepo()
 		if err != nil {
@@ -212,7 +214,7 @@ func shouldSkipSetup(repositoryRoot, dotenvFile string) (bool, error) {
 
 var UpdateCmd = &cobra.Command{
 	Use:   "update",
-	Short: "🔄 Automatically update DataRobot credentials.",
+	Short: "🔄 Automatically update DataRobot credentials",
 	Long: `Automatically update your '.env' file with fresh DataRobot credentials.
 
 This command will:
@@ -222,6 +224,7 @@ This command will:
 
 💡 Use this when your credentials expire or you need to refresh your connection.`,
 	PreRunE: auth.EnsureAuthenticatedE,
+
 	Run: func(_ *cobra.Command, _ []string) {
 		dotenv, err := ensureInRepoWithDotenv()
 		if err != nil {
@@ -238,7 +241,8 @@ This command will:
 
 var ValidateCmd = &cobra.Command{
 	Use:   "validate",
-	Short: "Validate '.env' and environment variable configuration against required settings.",
+	Short: "✅ Validate '.env' and environment variable configuration",
+
 	Run: func(_ *cobra.Command, _ []string) {
 		dotenv, err := ensureInRepoWithDotenv()
 		if err != nil {
