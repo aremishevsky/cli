@@ -17,7 +17,6 @@ package cmd
 import (
 	"context"
 	"fmt"
-	"os"
 	"strings"
 	"time"
 
@@ -68,7 +67,6 @@ using pre-built templates. Get from idea to production in minutes, not hours.
 		// PersistentPreRunE is a hook called after flags are parsed
 		// but before the command is run. Any logic that needs to happen
 		// before ANY command execution should go here.
-
 		log.Start()
 
 		return initializeConfig(cmd)
@@ -105,6 +103,8 @@ func init() {
 	RootCmd.PersistentFlags().Bool("skip-auth", false, "skip authentication checks (for advanced users)")
 	RootCmd.PersistentFlags().Bool("force-interactive", false, "force setup wizards to run even if already completed")
 	RootCmd.PersistentFlags().Duration("plugin-discovery-timeout", 2*time.Second, "timeout for plugin discovery (0s disables)")
+	RootCmd.PersistentFlags().Duration("plugin-update-check-interval", internalPlugin.DefaultUpdateCheckInterval, "cooldown between plugin update checks (0s disables)")
+	RootCmd.PersistentFlags().Bool("skip-plugin-update-check", false, "skip plugin update checks before running plugins")
 
 	// Make some of these flags available via Viper
 	_ = viper.BindPFlag("config", RootCmd.PersistentFlags().Lookup("config"))
@@ -113,6 +113,8 @@ func init() {
 	_ = viper.BindPFlag("skip-auth", RootCmd.PersistentFlags().Lookup("skip-auth"))
 	_ = viper.BindPFlag("force-interactive", RootCmd.PersistentFlags().Lookup("force-interactive"))
 	_ = viper.BindPFlag("plugin-discovery-timeout", RootCmd.PersistentFlags().Lookup("plugin-discovery-timeout"))
+	_ = viper.BindPFlag("plugin-update-check-interval", RootCmd.PersistentFlags().Lookup("plugin-update-check-interval"))
+	_ = viper.BindPFlag("skip-plugin-update-check", RootCmd.PersistentFlags().Lookup("skip-plugin-update-check"))
 
 	// Add command groups (plugin group added conditionally by registerPluginCommands)
 	RootCmd.AddGroup(
@@ -138,7 +140,7 @@ func init() {
 	)
 
 	// Discover and register plugin commands
-	registerPluginCommands()
+	plugin.RegisterPluginCommands(RootCmd)
 
 	// Override the default help command to add --all-commands flag
 	defaultHelpFunc := RootCmd.HelpFunc()
@@ -200,94 +202,4 @@ func initializeConfig(cmd *cobra.Command) error {
 	}
 
 	return nil
-}
-
-// registerPluginCommands discovers and registers plugin commands
-func registerPluginCommands() {
-	timeout := viper.GetDuration("plugin-discovery-timeout")
-	if timeout <= 0 {
-		log.Debug("Plugin discovery disabled", "timeout", timeout)
-		return
-	}
-
-	// Get list of builtin command names FIRST (before adding plugins)
-	builtinNames := make(map[string]bool)
-	for _, cmd := range RootCmd.Commands() {
-		builtinNames[cmd.Name()] = true
-	}
-
-	type pluginDiscoveryResult struct {
-		plugins []internalPlugin.DiscoveredPlugin
-		err     error
-	}
-
-	resultCh := make(chan pluginDiscoveryResult, 1)
-
-	go func() {
-		plugins, err := internalPlugin.GetPlugins()
-		resultCh <- pluginDiscoveryResult{plugins: plugins, err: err}
-	}()
-
-	var plugins []internalPlugin.DiscoveredPlugin
-
-	select {
-	case r := <-resultCh:
-		if r.err != nil {
-			log.Debug("Plugin discovery failed", "error", r.err)
-			return
-		}
-
-		plugins = r.plugins
-	case <-time.After(timeout):
-		log.Info("Plugin discovery timed out", "timeout", timeout)
-		log.Info("Consider increasing timeout using --plugin-discovery-timeout flag")
-
-		return
-	}
-
-	if len(plugins) == 0 {
-		// No plugins found, don't add empty group header
-		return
-	}
-
-	// Only add plugin group if we have plugins to show
-	RootCmd.AddGroup(&cobra.Group{
-		ID:    "plugin",
-		Title: tui.BaseTextStyle.Render("Plugin Commands:"),
-	})
-
-	for _, p := range plugins {
-		// Skip if conflicts with builtin command
-		if builtinNames[p.Manifest.Name] {
-			// TODO: Consider logging at Info level since this affects user-visible behavior
-			log.Debug("Plugin name conflicts with builtin command",
-				"plugin", p.Manifest.Name,
-				"path", p.Executable)
-
-			continue
-		}
-
-		RootCmd.AddCommand(createPluginCommand(p))
-	}
-}
-
-func createPluginCommand(p internalPlugin.DiscoveredPlugin) *cobra.Command {
-	executable := p.Executable // Capture for closure
-	manifest := p.Manifest     // Capture for closure
-	pluginName := p.Manifest.Name
-
-	return &cobra.Command{
-		Use:                p.Manifest.Name,
-		Short:              p.Manifest.Description,
-		GroupID:            "plugin",
-		DisableFlagParsing: true, // Pass all args to plugin
-		DisableSuggestions: true,
-		Run: func(_ *cobra.Command, args []string) {
-			fmt.Println(tui.InfoStyle.Render("🔌 Running plugin: " + pluginName))
-			log.Debug("Executing plugin", "name", pluginName, "executable", executable)
-
-			exitCode := internalPlugin.ExecutePlugin(manifest, executable, args)
-			os.Exit(exitCode)
-		},
-	}
 }

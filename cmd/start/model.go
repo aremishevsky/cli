@@ -291,28 +291,7 @@ func (m Model) handleStepComplete(msg stepCompleteMsg) (tea.Model, tea.Cmd) {
 		"need_template_setup", msg.needTemplateSetup,
 	)
 
-	// Store any message from the completed step
-	if msg.message != "" {
-		m.stepCompleteMessage = msg.message
-	}
-
-	if msg.hideMenu {
-		m.hideMenu = msg.hideMenu
-	}
-
-	if msg.selfUpdate {
-		m.selfUpdate = msg.selfUpdate
-	}
-
-	// Store quickstart script path if provided
-	if msg.quickstartScriptPath != "" {
-		m.quickstartScriptPath = msg.quickstartScriptPath
-	}
-
-	// Store whether we need template setup
-	if msg.needTemplateSetup {
-		m.needTemplateSetup = true
-	}
+	m.updateFromStepComplete(msg)
 
 	// If this step requires executing a script, do it now
 	if msg.executeScript && m.quickstartScriptPath != "" {
@@ -336,6 +315,31 @@ func (m Model) handleStepComplete(msg stepCompleteMsg) (tea.Model, tea.Cmd) {
 	return m.executeNextStep()
 }
 
+func (m *Model) updateFromStepComplete(msg stepCompleteMsg) {
+	// Store any message from the completed step
+	if msg.message != "" {
+		m.stepCompleteMessage = msg.message
+	}
+
+	if msg.hideMenu {
+		m.hideMenu = msg.hideMenu
+	}
+
+	if msg.selfUpdate {
+		m.selfUpdate = msg.selfUpdate
+	}
+
+	// Store quickstart script path if provided
+	if msg.quickstartScriptPath != "" {
+		m.quickstartScriptPath = msg.quickstartScriptPath
+	}
+
+	// Store whether we need template setup
+	if msg.needTemplateSetup {
+		m.needTemplateSetup = true
+	}
+}
+
 func (m Model) View() string { //nolint: cyclop
 	var sb strings.Builder
 
@@ -346,11 +350,11 @@ func (m Model) View() string { //nolint: cyclop
 
 		for i, step := range m.steps {
 			if i < m.current {
-				sb.WriteString(fmt.Sprintf("  %s %s\n", checkMark, tui.DimStyle.Render(step.description)))
+				fmt.Fprintf(&sb, "  %s %s\n", checkMark, tui.DimStyle.Render(step.description))
 			} else if i == m.current {
-				sb.WriteString(fmt.Sprintf("  %s %s\n", arrow, step.description))
+				fmt.Fprintf(&sb, "  %s %s\n", arrow, step.description)
 			} else {
-				sb.WriteString(fmt.Sprintf("    %s\n", tui.DimStyle.Render(step.description)))
+				fmt.Fprintf(&sb, "    %s\n", tui.DimStyle.Render(step.description))
 			}
 		}
 
@@ -359,7 +363,7 @@ func (m Model) View() string { //nolint: cyclop
 
 	// Display error or status message
 	if m.err != nil {
-		sb.WriteString(fmt.Sprintf("%s %s\n", tui.ErrorStyle.Render("Error: "), m.err.Error()))
+		fmt.Fprintf(&sb, "%s %s\n", tui.ErrorStyle.Render("Error: "), m.err.Error())
 
 		return sb.String()
 	}

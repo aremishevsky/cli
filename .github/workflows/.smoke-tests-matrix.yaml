@@ -12,7 +12,7 @@ on:
         description: 'Go version to use'
         required: false
         type: string
-        default: '1.25.8'
+        default: '1.26.1'
       ref:
         description: 'Git ref to checkout (for fork PRs)'
         required: false
@@ -65,11 +65,12 @@ jobs:
         with:
           go-version: ${{ inputs.go-version }}
 
-      - name: Build the DR CLI Binary
-        run: task build
-
-      - name: Move the Binary
-        run: sudo mv ./dist/dr /usr/local/bin/dr
+      - name: Build and Install the DR CLI Binary
+        run: |
+          set -e
+          task build
+          LOCAL_BINARY=./dist/dr sh install.sh
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
       - name: Run Smoke Tests for Binary
         env:

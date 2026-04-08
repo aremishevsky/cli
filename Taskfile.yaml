@@ -2,7 +2,7 @@ version: "3"
 
 vars:
   VERSION_PACKAGE: "github.com/datarobot/cli/internal/version"
-  VERSION: { sh: "git describe --long --always --abbrev=15" }
+  VERSION: { sh: 'git describe --dirty --tags --long --always --abbrev=15' }
   COMMIT: { sh: "git describe --dirty --long --always --abbrev=15" }
   BUILD_DATE: { sh: 'date -u +"%Y-%m-%dT%H:%M:%SZ"' }
   LDFLAGS_COMMON: |
@@ -10,7 +10,7 @@ vars:
     -X {{.VERSION_PACKAGE}}.Version={{.VERSION}} \
     -X {{.VERSION_PACKAGE}}.BuildDate={{.BUILD_DATE}}
   BIN_DIR: "$PWD/tmp/bin"
-  GOLANGCI_LINT_VERSION: "v2.6.0"
+  GOLANGCI_LINT_VERSION: "v2.11.4"
 
 dotenv: [".env"]
 
@@ -151,6 +151,12 @@ tasks:
     desc: "Run self-update smoke tests"
     cmds:
       - ./smoke_test_scripts/run_self_update_smoke_test.sh
+
+  smoke-test-plugin-update:
+    desc: "Run plugin auto-update-check smoke tests (requires internet, no API token needed)"
+    deps: [build]
+    cmds:
+      - ./smoke_test_scripts/run_plugin_update_smoke_test.sh
 
   smoke-test-windows:
     desc: "Run smoke tests (Windows)"

@@ -133,9 +133,9 @@ func (up UserPrompt) StringWithoutHelp() string {
 			result.WriteString("# ")
 		}
 
-		result.WriteString(fmt.Sprintf("%s=%v", up.Env, quotedValue))
+		fmt.Fprintf(&result, "%s=%v", up.Env, quotedValue)
 	} else {
-		result.WriteString(fmt.Sprintf("# %s=%v", up.Key, quotedValue))
+		fmt.Fprintf(&result, "# %s=%v", up.Key, quotedValue)
 	}
 
 	return result.String()
@@ -208,10 +208,6 @@ func GatherUserPrompts(rootDir string, variables Variables) ([]UserPrompt, error
 	yamlFiles, err := Discover(rootDir, 5)
 	if err != nil {
 		return nil, fmt.Errorf("Failed to discover task yaml files: %w", err)
-	}
-
-	if len(yamlFiles) == 0 {
-		return nil, nil
 	}
 
 	allPrompts := make([]UserPrompt, 0)
